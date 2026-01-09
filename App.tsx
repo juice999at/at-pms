@@ -20,6 +20,8 @@ const STORAGE_KEYS = {
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  
+  // 核心数据状态：优先从本地存储读取
   const [rooms, setRooms] = useState<Room[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ROOMS);
     return saved ? JSON.parse(saved) : INITIAL_ROOMS;
@@ -43,6 +45,7 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
+  // 模拟 MySQL 持久化：状态改变立即同步至本地存储
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.ROOMS, JSON.stringify(rooms)); }, [rooms]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.GUESTS, JSON.stringify(guests)); }, [guests]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings)); }, [settings]);
@@ -56,63 +59,106 @@ const App: React.FC = () => {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const handleUpdateBed = (bedId: string, updates: Partial<Bed>) => {
-    setRooms(prevRooms => prevRooms.map(room => {
-      if (!room.beds.some(b => b.id === bedId)) return room;
-      const updatedBeds = room.beds.map(bed => bed.id === bedId ? { ...bed, ...updates } : bed);
-      const occupiedBeds = updatedBeds.filter(b => b.status === BedStatus.OCCUPIED);
-      let newPolicy = RoomGenderPolicy.MIXED;
-      if (occupiedBeds.length > 0) {
-        const firstGuest = guests.find(g => g.id === occupiedBeds[0].guestId);
-        if (firstGuest) newPolicy = firstGuest.gender === '男' ? RoomGenderPolicy.MALE : RoomGenderPolicy.FEMALE;
-      }
-      return { ...room, beds: updatedBeds, genderPolicy: newPolicy };
-    }));
-    if (updates.status === BedStatus.AVAILABLE) showToast('退房手续已办理');
+  // 办理退房：释放该访客占用的所有床位
+  const handleCheckoutGuest = (guestId: string) => {
+    const guest = guests.find(g => g.id === guestId);
+    if (!guest) return;
+
+    setRooms(prevRooms => prevRooms.map(room => ({
+      ...room,
+      beds: room.beds.map(bed => 
+        guest.bedIds.includes(bed.id) 
+          ? { ...bed, status: BedStatus.AVAILABLE, guestId: undefined, cleaningStatus: CleaningStatus.DIRTY }
+          : bed
+      )
+    })));
+    showToast(`${guest.name} 及其同行人员已退房，床位待清理`);
   };
 
-  const handleExtendStay = (guestId: string) => {
+  const handleUpdateBed = (bedId: string, updates: Partial<Bed>) => {
+    // 如果是退房操作，需要特殊处理（可能涉及多人）
+    if (updates.status === BedStatus.AVAILABLE) {
+      const bed = rooms.flatMap(r => r.beds).find(b => b.id === bedId);
+      if (bed?.guestId) {
+        handleCheckoutGuest(bed.guestId);
+        return;
+      }
+    }
+
+    setRooms(prevRooms => prevRooms.map(room => {
+      if (!room.beds.some(b => b.id === bedId)) return room;
+      return { ...room, beds: room.beds.map(bed => bed.id === bedId ? { ...bed, ...updates } : bed) };
+    }));
+  };
+
+  const handleExtendStay = (guestId: string, days: number) => {
     setGuests(prev => prev.map(g => {
       if (g.id !== guestId) return g;
       const currentOut = new Date(g.checkOut);
-      currentOut.setDate(currentOut.getDate() + 1);
-      return { ...g, checkOut: currentOut.toISOString().split('T')[0], totalPaid: g.totalPaid + 50 };
+      currentOut.setDate(currentOut.getDate() + days);
+      
+      // 查找对应床位计算总价（基于占用的所有床位）
+      const firstBedId = g.bedIds[0];
+      const allBeds = rooms.flatMap(r => r.beds);
+      const guestBeds = allBeds.filter(b => g.bedIds.includes(b.id));
+      const dailyPrice = guestBeds.reduce((sum, b) => sum + b.pricePerNight, 0);
+
+      return { 
+        ...g, 
+        checkOut: currentOut.toISOString().split('T')[0], 
+        totalPaid: g.totalPaid + (dailyPrice * days) 
+      };
     }));
-    showToast('续住成功，离店日期已顺延一天');
+    showToast(`续住成功，离店日期已顺延 ${days} 天`);
   };
 
   const handleAddBooking = (newGuest: Omit<Guest, 'id'>) => {
     const guestId = `g-${Date.now()}`;
-    setGuests(prev => [...prev, { ...newGuest, id: guestId }]);
+    const newGuestRecord: Guest = { ...newGuest, id: guestId };
+    
+    setGuests(prev => [...prev, newGuestRecord]);
+    
     setRooms(prevRooms => prevRooms.map(room => {
-      if (!room.beds.some(b => b.id === newGuest.bedId)) return room;
+      // 只有包含被选床位的房间才需要更新
+      const hasSelectedBeds = room.beds.some(b => newGuest.bedIds.includes(b.id));
+      if (!hasSelectedBeds) return room;
+
       return {
         ...room,
-        beds: room.beds.map(bed => bed.id === newGuest.bedId ? { ...bed, status: BedStatus.OCCUPIED, guestId } : bed),
+        beds: room.beds.map(bed => 
+          newGuest.bedIds.includes(bed.id) 
+            ? { ...bed, status: BedStatus.OCCUPIED, guestId } 
+            : bed
+        ),
         genderPolicy: newGuest.gender === '男' ? RoomGenderPolicy.MALE : RoomGenderPolicy.FEMALE
       };
     }));
+
     setIsBookingModalOpen(false);
-    showToast('入住登记成功！');
+    showToast('入住登记成功，床位已锁定');
   };
 
-  // Fix: Added handleBatchAddRooms to handle bulk creation of rooms and beds
+  /**
+   * Fix: Added handleBatchAddRooms function to handle bulk room creation.
+   * Error in file App.tsx on line 163 was "Cannot find name 'handleBatchAddRooms'".
+   */
   const handleBatchAddRooms = (startNum: number, count: number, bedsCount: number, type: RoomType) => {
     const newRooms: Room[] = [];
+    const baseId = Date.now();
     for (let i = 0; i < count; i++) {
       const roomNum = (startNum + i).toString();
-      const roomId = `r-${Date.now()}-${i}`;
-      const beds: Bed[] = [];
-      for (let j = 0; j < bedsCount; j++) {
-        beds.push({
-          id: `b-${roomId}-${j}`,
-          name: `床位 ${String.fromCharCode(65 + j)}`,
-          roomId: roomId,
-          status: BedStatus.AVAILABLE,
-          cleaningStatus: CleaningStatus.CLEAN,
-          pricePerNight: type === RoomType.STANDARD ? settings.standardPrice : settings.superiorPrice
-        });
-      }
+      const roomId = `r-batch-${baseId}-${i}`;
+      const price = type === RoomType.STANDARD ? settings.standardPrice : settings.superiorPrice;
+      
+      const beds: Bed[] = Array.from({ length: bedsCount }, (_, index) => ({
+        id: `b-${roomId}-${index}`,
+        name: `床位 ${String.fromCharCode(65 + index)}`,
+        roomId: roomId,
+        status: BedStatus.AVAILABLE,
+        cleaningStatus: CleaningStatus.CLEAN,
+        pricePerNight: price
+      }));
+
       newRooms.push({
         id: roomId,
         number: roomNum,
@@ -125,9 +171,13 @@ const App: React.FC = () => {
     showToast(`成功批量创建 ${count} 间客房`);
   };
 
+  /**
+   * Fix: Added handleSaveSettings function to handle configuration updates.
+   * Error in file App.tsx on line 168 was "Cannot find name 'handleSaveSettings'".
+   */
   const handleSaveSettings = (newSettings: SystemSettings) => {
     setSettings(newSettings);
-    showToast('配置已保存');
+    showToast('系统配置已更新');
   };
 
   return (
@@ -145,13 +195,31 @@ const App: React.FC = () => {
                 onExtendStay={handleExtendStay}
               />
             )}
-            {currentView === 'rooms' && <RoomManager rooms={rooms} guests={guests} onBedAction={handleUpdateBed} onDeleteRoom={(id) => setRooms(r => r.filter(x => x.id !== id))} onOpenBooking={(id) => { setSelectedBedId(id); setIsBookingModalOpen(true); }} onBatchAdd={handleBatchAddRooms} />}
+            {currentView === 'rooms' && (
+              <RoomManager 
+                rooms={rooms} 
+                guests={guests} 
+                onBedAction={handleUpdateBed} 
+                onDeleteRoom={(id) => setRooms(r => r.filter(x => x.id !== id))} 
+                onOpenBooking={(id) => { setSelectedBedId(id); setIsBookingModalOpen(true); }} 
+                onBatchAdd={handleBatchAddRooms} 
+              />
+            )}
             {currentView === 'guests' && <GuestManager guests={guests} rooms={rooms} />}
             {currentView === 'analytics' && <Analytics guests={guests} />}
             {currentView === 'settings' && <Settings settings={settings} onSave={handleSaveSettings} />}
           </div>
         </div>
-        {isBookingModalOpen && <BookingModal isOpen={isBookingModalOpen} onClose={() => setIsBookingModalOpen(false)} onConfirm={handleAddBooking} rooms={rooms} guests={guests} preselectedBedId={selectedBedId} />}
+        {isBookingModalOpen && (
+          <BookingModal 
+            isOpen={isBookingModalOpen} 
+            onClose={() => { setIsBookingModalOpen(false); setSelectedBedId(null); }} 
+            onConfirm={handleAddBooking} 
+            rooms={rooms} 
+            guests={guests} 
+            preselectedBedId={selectedBedId} 
+          />
+        )}
       </main>
       {notification && <Notification message={notification.message} type={notification.type} />}
     </div>

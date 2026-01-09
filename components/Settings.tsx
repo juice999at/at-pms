@@ -10,13 +10,47 @@ interface SettingsProps {
 const Settings: React.FC<SettingsProps> = ({ settings, onSave }) => {
   const [tempSettings, setTempSettings] = useState<SystemSettings>(settings);
 
+  const handleExportData = () => {
+    const data = {
+      rooms: localStorage.getItem('ZENSTAY_ROOMS_DATA'),
+      guests: localStorage.getItem('ZENSTAY_GUESTS_DATA'),
+      settings: localStorage.getItem('ZENSTAY_SETTINGS_DATA'),
+      exportDate: new Date().toISOString()
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ZenStay_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.rooms) localStorage.setItem('ZENSTAY_ROOMS_DATA', data.rooms);
+        if (data.guests) localStorage.setItem('ZENSTAY_GUESTS_DATA', data.guests);
+        if (data.settings) localStorage.setItem('ZENSTAY_SETTINGS_DATA', data.settings);
+        alert('数据恢复成功，页面即将刷新以加载新数据。');
+        window.location.reload();
+      } catch (err) {
+        alert('无效的备份文件');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="space-y-6 md:space-y-8 animate-in slide-in-from-right-4 duration-500">
       <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm max-w-2xl">
         <h3 className="text-2xl font-black text-slate-800 tracking-tighter mb-8">系统基础配置</h3>
         
         <div className="space-y-8">
-          {/* 房价设置 */}
           <section className="space-y-4">
             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center">
               <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full mr-2"></span>
@@ -44,7 +78,6 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave }) => {
             </div>
           </section>
 
-          {/* 时间设置 */}
           <section className="space-y-4">
             <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center">
               <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full mr-2"></span>
@@ -68,9 +101,32 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave }) => {
                   onChange={e => setTempSettings({...tempSettings, overtimeAlertMinutes: +e.target.value})}
                   className="w-full px-5 py-3 bg-slate-50 border border-slate-200 rounded-2xl font-black text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                 />
-                <p className="text-[10px] text-slate-400 font-bold">超出退房时间此分钟数后，看板将标红显示。</p>
               </div>
             </div>
+          </section>
+
+          <section className="space-y-4 pt-8 border-t border-slate-100">
+            <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center">
+              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full mr-2"></span>
+              数据持久化与数据库备份
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button 
+                onClick={handleExportData}
+                className="flex items-center justify-center space-x-2 px-6 py-4 bg-slate-900 text-white rounded-2xl font-black hover:bg-slate-800 transition-all active:scale-95"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <span>下载全量备份</span>
+              </button>
+              <label className="flex items-center justify-center space-x-2 px-6 py-4 bg-white border-2 border-slate-200 text-slate-600 rounded-2xl font-black hover:border-indigo-500 hover:text-indigo-600 transition-all active:scale-95 cursor-pointer">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                <span>导入历史备份</span>
+                <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
+              </label>
+            </div>
+            <p className="text-[10px] text-slate-400 font-bold leading-relaxed mt-2">
+              提示：由于本系统运行在安全沙箱环境中，暂不支持外部 MySQL 连接。您的数据将自动存储在浏览器 LocalStorage 中。为了防止浏览器清理缓存导致数据丢失，建议您定期使用“下载全量备份”功能将数据保存到本地。
+            </p>
           </section>
         </div>
 
@@ -81,21 +137,6 @@ const Settings: React.FC<SettingsProps> = ({ settings, onSave }) => {
           >
             保存配置中心
           </button>
-        </div>
-      </div>
-
-      <div className="bg-slate-100/50 p-6 rounded-[2rem] border border-slate-200 border-dashed max-w-2xl">
-        <div className="flex items-start space-x-4">
-          <div className="bg-white p-3 rounded-xl shadow-sm">
-            <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
-          <div>
-            <h5 className="text-sm font-black text-slate-800">关于价格生效规则</h5>
-            <p className="text-xs text-slate-500 font-medium mt-1 leading-relaxed">
-              修改默认房价后，**已预订或已入住**的订单价格不会改变（保护历史财务数据）。<br/>
-              新配置仅对当前**空闲状态**的床位以及**未来新创建**的客房生效。
-            </p>
-          </div>
         </div>
       </div>
     </div>

@@ -34,5 +34,5 @@ export const INITIAL_ROOMS: Room[] = [
 ];
 
 export const INITIAL_GUESTS: Guest[] = [
-  { id: 'g1', name: '张伟', phone: '13800000001', idNumber: '110101199001010001', gender: '男', ethnicity: '汉族', checkIn: '2024-05-20', checkOut: '2024-05-25', bedId: 'b1-1', totalPaid: 250 },
+  { id: 'g1', name: '张伟', phone: '13800000001', idNumber: '110101199001010001', gender: '男', ethnicity: '汉族', checkIn: '2024-05-20', checkOut: '2024-05-25', bedIds: ['b1-1'], totalPaid: 250, peopleCount: 1 },
 ];

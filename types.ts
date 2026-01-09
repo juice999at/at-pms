@@ -49,8 +49,9 @@ export interface Guest {
   ethnicity: string;
   checkIn: string;
   checkOut: string;
-  bedId: string;
+  bedIds: string[]; // 改为数组：支持一人登记占用多床
   totalPaid: number;
+  peopleCount: number;
 }
 
 export interface SystemSettings {
