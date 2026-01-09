@@ -93,14 +93,21 @@ const Dashboard: React.FC<DashboardProps> = ({ rooms, guests, settings, onBedAct
   }, [rooms, guests, filterPeopleCount, filterGender, filterEthnicity]);
 
   const stats = useMemo(() => {
-    const dailyRevenue = rooms.reduce((sum, r) => sum + r.beds.filter(b => b.status === BedStatus.OCCUPIED).reduce((s, b) => s + b.pricePerNight, 0), 0);
+    // 今日营收：今日入住的客人总收费
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayRevenue = guests
+      .filter(g => g.checkIn === todayStr)
+      .reduce((sum, g) => sum + g.totalPaid, 0);
+
+    // 累计营收：系统所有客人实付总额
     const totalRevenue = guests.reduce((sum, g) => sum + g.totalPaid, 0);
+    
     const totalBeds = rooms.reduce((sum, r) => sum + r.beds.length, 0);
     const occupiedBeds = rooms.reduce((sum, r) => sum + r.beds.filter(b => b.status === BedStatus.OCCUPIED).length, 0);
     const occupancy = totalBeds ? Math.round((occupiedBeds / totalBeds) * 100) : 0;
     const dirtyBeds = rooms.reduce((s, r) => s + r.beds.filter(b => b.cleaningStatus === CleaningStatus.DIRTY).length, 0);
     
-    return { revenue: dailyRevenue, totalRevenue, occupancy, dirtyBeds };
+    return { todayRevenue, totalRevenue, occupancy, dirtyBeds };
   }, [rooms, guests]);
 
   const overdueGuests = useMemo(() => {
@@ -135,8 +142,8 @@ const Dashboard: React.FC<DashboardProps> = ({ rooms, guests, settings, onBedAct
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="今日实时营收" value={`¥${stats.revenue}`} color="bg-emerald-500" />
-        <StatCard title="累计实收总额" value={`¥${stats.totalRevenue}`} color="bg-indigo-500" />
+        <StatCard title="今日预订营收" value={`¥${stats.todayRevenue}`} color="bg-emerald-500" />
+        <StatCard title="历史实收总计" value={`¥${stats.totalRevenue}`} color="bg-indigo-500" />
         <StatCard title="当前入住率" value={`${stats.occupancy}%`} color="bg-blue-500" />
         <StatCard title="待清扫任务" value={stats.dirtyBeds} color="bg-amber-500" />
       </div>
@@ -161,7 +168,7 @@ const Dashboard: React.FC<DashboardProps> = ({ rooms, guests, settings, onBedAct
                 <span className="text-[10px] font-black text-slate-400 pl-2 uppercase">性别</span>
                 <div className="flex bg-white rounded-xl p-0.5 shadow-sm">
                   {['不限', '男', '女'].map(g => (
-                    <button key={g} onClick={() => setFilterGender(g as any)} className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${filterGender === g ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}>
+                    <button key={g} onClick={() => setFilterGender(g as any)} className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${filterGender === g ? (g === '男' ? 'bg-blue-500 text-white shadow-md' : g === '女' ? 'bg-pink-500 text-white shadow-md' : 'bg-indigo-600 text-white shadow-md') : 'text-slate-400 hover:text-slate-600'}`}>
                       {g}
                     </button>
                   ))}
@@ -232,7 +239,7 @@ const Dashboard: React.FC<DashboardProps> = ({ rooms, guests, settings, onBedAct
                         targetId: guest.id,
                         bedId: guest.bedIds[0],
                         title: '确认退房',
-                        message: `是否立即为「${guest.name}」及其同行人员办理退房？此操作将释放所有关联床位。`
+                        message: `是否立即为「${guest.name}」办理退房？`
                       })}
                       className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black hover:bg-rose-50 hover:text-rose-600 transition-all"
                     >
@@ -243,7 +250,7 @@ const Dashboard: React.FC<DashboardProps> = ({ rooms, guests, settings, onBedAct
                         type: 'extend',
                         targetId: guest.id,
                         title: '续住处理',
-                        message: `为「${guest.name}」及其同行人员办理延期。`,
+                        message: `为「${guest.name}」办理延期。`,
                         currentCheckOut: guest.checkOut,
                         pricePerNight: guest.totalDailyPrice
                       })}

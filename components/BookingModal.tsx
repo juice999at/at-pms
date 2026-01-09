@@ -38,6 +38,30 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
     return rooms.find(r => r.beds.some(b => b.id === preselectedBedId)) || null;
   }, [preselectedBedId, rooms]);
 
+  const availableBedsInRoom = useMemo(() => {
+    if (!targetRoom) return [];
+    return targetRoom.beds.filter(b => b.status === BedStatus.AVAILABLE || b.id === preselectedBedId);
+  }, [targetRoom, preselectedBedId]);
+
+  // 核心功能：自动计算应缴金额
+  useEffect(() => {
+    if (!formData.checkIn || !formData.checkOut || formData.bedIds.length === 0) {
+      setFormData(prev => ({ ...prev, totalPaid: 0 }));
+      return;
+    }
+
+    const start = new Date(formData.checkIn);
+    const end = new Date(formData.checkOut);
+    const nights = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    
+    // 汇总所选床位单价
+    const allBeds = rooms.flatMap(r => r.beds);
+    const selectedBeds = allBeds.filter(b => formData.bedIds.includes(b.id));
+    const totalPrice = selectedBeds.reduce((sum, b) => sum + b.pricePerNight, 0) * nights;
+
+    setFormData(prev => ({ ...prev, totalPaid: totalPrice }));
+  }, [formData.checkIn, formData.checkOut, formData.bedIds, rooms]);
+
   useEffect(() => {
     if (preselectedBedId) {
       setFormData(prev => ({ ...prev, bedIds: [preselectedBedId] }));
@@ -49,7 +73,11 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.bedIds.length !== formData.peopleCount) {
-      alert(`您选择了 ${formData.peopleCount} 人入住，请勾选相应数量的床位（当前已选 ${formData.bedIds.length} 个）。`);
+      alert(`您选择了 ${formData.peopleCount} 人入住，请勾选相应数量的床位。`);
+      return;
+    }
+    if (!formData.checkOut) {
+      alert('请选择退房日期');
       return;
     }
     onConfirm(formData);
@@ -69,11 +97,6 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
     });
   };
 
-  const availableBedsInRoom = useMemo(() => {
-    if (!targetRoom) return [];
-    return targetRoom.beds.filter(b => b.status === BedStatus.AVAILABLE || b.id === preselectedBedId);
-  }, [targetRoom, preselectedBedId]);
-
   if (!isOpen) return null;
 
   return (
@@ -82,11 +105,9 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
       <div className="relative bg-white w-full max-w-xl rounded-[3rem] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-slate-100">
         <div className="bg-slate-900 p-8 flex justify-between items-center text-white">
           <div className="flex flex-col">
-            <h2 className="text-2xl font-black tracking-tighter">
-              入住登记 {targetRoom ? ` - ${targetRoom.number} 房` : ''}
-            </h2>
+            <h2 className="text-2xl font-black tracking-tighter">入住登记 {targetRoom ? ` - ${targetRoom.number} 房` : ''}</h2>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-              {formData.peopleCount > 1 ? `多人同行：需分配 ${formData.peopleCount} 个床位` : '标准单人入住'}
+              {formData.peopleCount > 1 ? `需要分配 ${formData.peopleCount} 个床位` : '标准单人入住'}
             </p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-2xl transition-colors">
@@ -98,21 +119,14 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-1">
               <Label required>访客姓名</Label>
-              <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all" placeholder="主入住人姓名" />
+              <input required type="text" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold" placeholder="姓名" />
             </div>
 
             <div className="space-y-1">
               <Label required>性别</Label>
               <div className="flex bg-slate-100 p-1 rounded-2xl">
                 {['男', '女'].map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => setFormData({ ...formData, gender: g as '男' | '女' })}
-                    className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${
-                      formData.gender === g ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'
-                    }`}
-                  >
+                  <button key={g} type="button" onClick={() => setFormData({ ...formData, gender: g as '男' | '女' })} className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${formData.gender === g ? (g === '男' ? 'bg-blue-500 text-white shadow-md' : 'bg-pink-500 text-white shadow-md') : 'text-slate-400'}`}>
                     {g}
                   </button>
                 ))}
@@ -121,11 +135,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
 
             <div className="space-y-1">
               <Label required>民族</Label>
-              <select 
-                value={formData.ethnicity} 
-                onChange={e => setFormData({...formData, ethnicity: e.target.value})}
-                className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold appearance-none"
-              >
+              <select value={formData.ethnicity} onChange={e => setFormData({...formData, ethnicity: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold">
                 {ETHNIC_GROUPS.map(e => <option key={e} value={e}>{e}</option>)}
               </select>
             </div>
@@ -133,20 +143,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
             <div className="space-y-1">
               <Label required>入住人数</Label>
               <div className="flex items-center space-x-4 bg-slate-50 border border-slate-100 p-2 rounded-2xl">
-                <button type="button" onClick={() => setFormData({...formData, peopleCount: Math.max(1, formData.peopleCount - 1), bedIds: []})} className="w-10 h-10 bg-white rounded-xl shadow-sm font-black text-slate-600 active:scale-90 transition-all">-</button>
+                <button type="button" onClick={() => setFormData({...formData, peopleCount: Math.max(1, formData.peopleCount - 1), bedIds: []})} className="w-10 h-10 bg-white rounded-xl shadow-sm font-black">-</button>
                 <div className="flex-1 text-center font-black text-indigo-600">{formData.peopleCount} 人</div>
-                <button type="button" onClick={() => setFormData({...formData, peopleCount: Math.min(availableBedsInRoom.length || 10, formData.peopleCount + 1), bedIds: []})} className="w-10 h-10 bg-white rounded-xl shadow-sm font-black text-slate-600 active:scale-90 transition-all">+</button>
+                <button type="button" onClick={() => setFormData({...formData, peopleCount: Math.min(availableBedsInRoom.length || 10, formData.peopleCount + 1), bedIds: []})} className="w-10 h-10 bg-white rounded-xl shadow-sm font-black">+</button>
               </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label>手机号码</Label>
-              <input type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all" />
-            </div>
-
-            <div className="space-y-1">
-              <Label>身份证号</Label>
-              <input type="text" value={formData.idNumber} onChange={e => setFormData({...formData, idNumber: e.target.value})} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold transition-all" />
             </div>
 
             <div className="space-y-1">
@@ -160,21 +160,11 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
 
             {targetRoom && (
               <div className="space-y-3 md:col-span-2 pt-2">
-                <Label required>勾选分配床位 ({formData.bedIds.length} / {formData.peopleCount})</Label>
+                <Label required>勾选床位 ({formData.bedIds.length} / {formData.peopleCount})</Label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {availableBedsInRoom.map(bed => (
-                    <button
-                      key={bed.id}
-                      type="button"
-                      onClick={() => toggleBedSelection(bed.id)}
-                      className={`p-4 rounded-2xl border-2 flex flex-col items-center justify-center transition-all ${
-                        formData.bedIds.includes(bed.id)
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700'
-                          : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'
-                      }`}
-                    >
+                    <button key={bed.id} type="button" onClick={() => toggleBedSelection(bed.id)} className={`p-4 rounded-2xl border-2 transition-all ${formData.bedIds.includes(bed.id) ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 bg-slate-50 text-slate-400'}`}>
                       <span className="text-xs font-black">{bed.name}</span>
-                      <span className="text-[10px] font-bold mt-1 opacity-60">¥{bed.pricePerNight}</span>
                     </button>
                   ))}
                 </div>
@@ -182,18 +172,20 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
             )}
           </div>
           
-          <div className="flex space-x-4 pt-4">
-            <button type="button" onClick={onClose} className="flex-1 py-5 bg-slate-100 rounded-[2rem] font-black text-slate-500 hover:bg-slate-200 transition-all">取消</button>
-            <button 
-              type="submit" 
-              disabled={formData.bedIds.length !== formData.peopleCount}
-              className={`flex-1 py-5 rounded-[2rem] font-black shadow-xl transition-all active:scale-95 ${
-                formData.bedIds.length === formData.peopleCount
-                ? 'bg-indigo-600 text-white shadow-indigo-200 hover:bg-indigo-700'
-                : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-              }`}
-            >
-              确认登记
+          <div className="bg-indigo-50 p-6 rounded-3xl flex justify-between items-center">
+             <div>
+               <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block">应收总额</span>
+               <span className="text-2xl font-black text-indigo-700">¥{formData.totalPaid}</span>
+             </div>
+             <div className="text-right text-[10px] font-bold text-indigo-400">
+               包含全部床位费用<br/>自动结算至当日营收
+             </div>
+          </div>
+
+          <div className="flex space-x-4">
+            <button type="button" onClick={onClose} className="flex-1 py-5 bg-slate-100 rounded-[2rem] font-black text-slate-500">取消</button>
+            <button type="submit" disabled={formData.bedIds.length !== formData.peopleCount} className={`flex-1 py-5 rounded-[2rem] font-black shadow-xl transition-all ${formData.bedIds.length === formData.peopleCount ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-200 text-slate-400'}`}>
+              确认登记并收费
             </button>
           </div>
         </form>
