@@ -19,15 +19,26 @@ const Label: React.FC<{ children: React.ReactNode, required?: boolean }> = ({ ch
   </label>
 );
 
+const getLocalDateString = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm, rooms, guests, preselectedBedId }) => {
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
     idNumber: '',
     gender: '男' as '男' | '女',
     ethnicity: '汉族',
-    checkIn: new Date().toISOString().split('T')[0],
-    checkOut: '',
+    checkIn: getLocalDateString(today),
+    checkOut: getLocalDateString(tomorrow),
     bedIds: [] as string[],
     totalPaid: 0,
     peopleCount: 1
@@ -52,6 +63,13 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
 
     const start = new Date(formData.checkIn);
     const end = new Date(formData.checkOut);
+    
+    // 确保入住和退房日期逻辑正确
+    if (end <= start) {
+      setFormData(prev => ({ ...prev, totalPaid: 0 }));
+      return;
+    }
+
     const nights = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
     
     // 汇总所选床位单价
@@ -80,6 +98,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
       alert('请选择退房日期');
       return;
     }
+    if (formData.totalPaid <= 0) {
+      alert('退房日期必须晚于入住日期');
+      return;
+    }
     onConfirm(formData);
   };
 
@@ -92,10 +114,16 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
         if (prev.bedIds.length < prev.peopleCount) {
           return { ...prev, bedIds: [...prev.bedIds, bedId] };
         }
+        // 如果已经达到人数上限，替换掉第一个（或者根据业务逻辑处理）
         return { ...prev, bedIds: [...prev.bedIds.slice(1), bedId] };
       }
     });
   };
+
+  const isFormValid = formData.name && 
+                      formData.bedIds.length === formData.peopleCount && 
+                      formData.checkOut && 
+                      formData.totalPaid > 0;
 
   if (!isOpen) return null;
 
@@ -172,19 +200,23 @@ const BookingModal: React.FC<BookingModalProps> = ({ isOpen, onClose, onConfirm,
             )}
           </div>
           
-          <div className="bg-indigo-50 p-6 rounded-3xl flex justify-between items-center">
+          <div className={`p-6 rounded-3xl flex justify-between items-center transition-colors ${formData.totalPaid > 0 ? 'bg-indigo-50' : 'bg-rose-50'}`}>
              <div>
-               <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block">应收总额</span>
-               <span className="text-2xl font-black text-indigo-700">¥{formData.totalPaid}</span>
+               <span className={`text-[10px] font-black uppercase tracking-widest block ${formData.totalPaid > 0 ? 'text-indigo-400' : 'text-rose-400'}`}>应收总额</span>
+               <span className={`text-2xl font-black ${formData.totalPaid > 0 ? 'text-indigo-700' : 'text-rose-700'}`}>¥{formData.totalPaid}</span>
              </div>
-             <div className="text-right text-[10px] font-bold text-indigo-400">
-               包含全部床位费用<br/>自动结算至当日营收
+             <div className={`text-right text-[10px] font-bold ${formData.totalPaid > 0 ? 'text-indigo-400' : 'text-rose-400'}`}>
+               {formData.totalPaid > 0 ? (
+                 <>包含全部床位费用<br/>自动结算至当日营收</>
+               ) : (
+                 <>日期选择有误<br/>无法计算费用</>
+               )}
              </div>
           </div>
 
           <div className="flex space-x-4">
             <button type="button" onClick={onClose} className="flex-1 py-5 bg-slate-100 rounded-[2rem] font-black text-slate-500">取消</button>
-            <button type="submit" disabled={formData.bedIds.length !== formData.peopleCount} className={`flex-1 py-5 rounded-[2rem] font-black shadow-xl transition-all ${formData.bedIds.length === formData.peopleCount ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-200 text-slate-400'}`}>
+            <button type="submit" disabled={!isFormValid} className={`flex-1 py-5 rounded-[2rem] font-black shadow-xl transition-all ${isFormValid ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
               确认登记并收费
             </button>
           </div>
